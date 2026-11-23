@@ -40,8 +40,21 @@ jobs:
 
       - run: flutter pub get
 
+      - name: Siapkan Podfile & matikan tanda tangan untuk plugin
+        run: |
+          flutter build ios --config-only --release --no-codesign
+          perl -0pi -e "s/(flutter_additional_ios_build_settings\(target\)\n)/\$1    target.build_configurations.each { |c| c.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'; c.build_settings['CODE_SIGNING_REQUIRED'] = 'NO' }\n/" ios/Podfile
+          grep -n "CODE_SIGNING_ALLOWED" ios/Podfile
+
       - name: Build
-        run: flutter build ios --release --no-codesign
+        run: |
+          flutter build ios --release --no-codesign -v > build.log 2>&1 || {
+            echo "===== ERROR LINES ====="
+            grep -nE "error:|BUILD FAILED|Signing for|requires a development team|Error \(Xcode\)" build.log | tail -80
+            echo "===== TAIL ====="
+            tail -120 build.log
+            exit 1
+          }
 
       - name: Bungkus jadi .ipa
         run: |
@@ -91,6 +104,13 @@ jobs:
           cat $M
 
       - run: flutter pub get
+
+      - name: Tambal plugin WebView untuk Gradle baru
+        run: |
+          for f in ~/.pub-cache/hosted/pub.dev/flutter_inappwebview_android-*/android/build.gradle; do
+            sed -i "s/proguard-android.txt/proguard-android-optimize.txt/" "$f"
+            grep -n "proguard" "$f" || true
+          done
 
       - name: Build
         run: flutter build apk --release
