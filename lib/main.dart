@@ -80,7 +80,12 @@ class _BrowserPageState extends State<BrowserPage> {
     final c = _web;
     if (c == null) return;
     final back = await c.canGoBack(), fwd = await c.canGoForward();
-    if (mounted) setState(() => (_canBack, _canForward) = (back, fwd));
+    if (mounted) {
+      setState(() {
+        _canBack = back;
+        _canForward = fwd;
+      });
+    }
   }
 
   Future<void> _openSettings() async {
@@ -172,6 +177,7 @@ class _BrowserPageState extends State<BrowserPage> {
       initialUserScripts: UnmodifiableListView([_script!]),
       initialSettings: InAppWebViewSettings(
         javaScriptEnabled: true,
+        useShouldOverrideUrlLoading: true,
         javaScriptCanOpenWindowsAutomatically: false,
         supportMultipleWindows: true,
         allowsInlineMediaPlayback: true,
