@@ -49,10 +49,9 @@ jobs:
       - name: Build
         run: |
           flutter build ios --release --no-codesign -v > build.log 2>&1 || {
-            echo "===== ERROR LINES ====="
-            grep -nE "error:|BUILD FAILED|Signing for|requires a development team|Error \(Xcode\)" build.log | tail -80
-            echo "===== TAIL ====="
-            tail -120 build.log
+            MSG=$(grep -E "error:|BUILD FAILED|Signing for|requires a development team|Error \(Xcode\)|lib/.*\.dart:[0-9]+" build.log | grep -v "^\s*$" | sort -u | head -40 | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=iOS build::${MSG}"
+            tail -150 build.log
             exit 1
           }
 
@@ -113,7 +112,13 @@ jobs:
           done
 
       - name: Build
-        run: flutter build apk --release
+        run: |
+          flutter build apk --release > build.log 2>&1 || {
+            MSG=$( (grep -A12 "What went wrong" build.log; grep -E "^e: |error:|lib/.*\.dart:[0-9]+" build.log) | tr -d '\r' | grep -v "^\s*$" | head -45 | cut -c1-300 | sed 's/%/%25/g' | awk '{printf "%s%%0A", $0}')
+            echo "::error title=Android build::${MSG}"
+            tail -80 build.log | tr '\r' '\n' | grep -v "%\]" | tail -60
+            exit 1
+          }
 
       - uses: actions/upload-artifact@v4
         with:
