@@ -1,0 +1,13 @@
+{
+  "name": "guard-my-eyes-assets",
+  "private": true,
+  "type": "module",
+  "scripts": { "build": "node tools/build-assets.mjs" },
+  "dependencies": {
+    "@tensorflow/tfjs": "4.22.0",
+    "@tensorflow/tfjs-backend-wasm": "4.22.0",
+    "@vladmandic/face-api": "1.7.15",
+    "esbuild": "0.28.2",
+    "nsfwjs": "4.3.0"
+  }
+}

@@ -1,0 +1,11 @@
+node_modules/
+assets/
+.dart_tool/
+build/
+.flutter-plugins
+.flutter-plugins-dependencies
+ios/Pods/
+android/.gradle/
+android/local.properties
+Payload/
+*.ipa
