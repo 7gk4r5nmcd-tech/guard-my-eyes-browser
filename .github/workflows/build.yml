@@ -1,0 +1,120 @@
+name: Build
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  ios:
+    name: iPhone (.ipa tanpa tanda tangan)
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Siapkan model AI & skrip (assets/)
+        run: |
+          npm install --no-audit --no-fund
+          node tools/build-assets.mjs
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Buat folder platform yang belum ada
+        run: flutter create --platforms=ios,android --org com.guardmyeyes --project-name guard_my_eyes_browser .
+
+      - name: Izinkan http (server AI lokal di dalam aplikasi)
+        run: |
+          PL=ios/Runner/Info.plist
+          /usr/libexec/PlistBuddy -c "Delete :NSAppTransportSecurity" $PL || true
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity dict" $PL
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsArbitraryLoads bool true" $PL
+          /usr/libexec/PlistBuddy -c "Add :NSAppTransportSecurity:NSAllowsLocalNetworking bool true" $PL
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDisplayName Guard My Eyes" $PL || /usr/libexec/PlistBuddy -c "Add :CFBundleDisplayName string Guard My Eyes" $PL
+
+      - run: flutter pub get
+
+      - name: Build
+        run: flutter build ios --release --no-codesign
+
+      - name: Bungkus jadi .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/ios/iphoneos/Runner.app Payload/
+          zip -qr GuardMyEyes.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuardMyEyes-iPhone
+          path: GuardMyEyes.ipa
+
+  android:
+    name: Android (.apk)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Siapkan model AI & skrip (assets/)
+        run: |
+          npm install --no-audit --no-fund
+          node tools/build-assets.mjs
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Buat folder platform yang belum ada
+        run: flutter create --platforms=ios,android --org com.guardmyeyes --project-name guard_my_eyes_browser .
+
+      - name: Izin internet & http
+        run: |
+          M=android/app/src/main/AndroidManifest.xml
+          grep -q 'android.permission.INTERNET' $M || sed -i 's#<application#<uses-permission android:name="android.permission.INTERNET"/>\n    <application#' $M
+          sed -i 's#<application#<application android:usesCleartextTraffic="true"#' $M
+          sed -i 's#android:label="guard_my_eyes_browser"#android:label="Guard My Eyes"#' $M
+          cat $M
+
+      - run: flutter pub get
+
+      - name: Build
+        run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GuardMyEyes-Android
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  release:
+    name: Terbitkan ke halaman Releases
+    needs: [ios, android]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: out
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: build-${{ github.run_number }}
+          name: Guard My Eyes Browser (build ${{ github.run_number }})
+          make_latest: true
+          files: |
+            out/GuardMyEyes-iPhone/GuardMyEyes.ipa
+            out/GuardMyEyes-Android/app-release.apk
