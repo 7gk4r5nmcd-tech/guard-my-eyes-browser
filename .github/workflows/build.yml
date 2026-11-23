@@ -8,7 +8,7 @@ on:
 jobs:
   ios:
     name: iPhone (.ipa tanpa tanda tangan)
-    runs-on: macos-latest
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
 
@@ -128,6 +128,8 @@ jobs:
   release:
     name: Terbitkan ke halaman Releases
     needs: [ios, android]
+    # Tetap terbitkan APK walaupun build iPhone gagal/antre terlalu lama.
+    if: ${{ !cancelled() && needs.android.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
