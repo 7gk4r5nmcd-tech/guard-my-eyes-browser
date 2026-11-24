@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS = {
   pornTagKeywords: "sexy\n17+\n21+", // tambahan khusus untuk label/tag/genre halaman
   scanPageMenu: true,        // kunci situs yang menunya punya >= 2 kategori porno
   blurUnreadableVideos: true, // video yang tidak bisa diperiksa (dari server lain) tetap di-blur
+  screenScan: true,          // (aplikasi HP) AI memeriksa tangkapan layar secara berkala
+  screenScanSeconds: 3,
   detectGaming: true,        // kunci video game di YouTube & situs streaming game
   gamingKeywords:
     "gameplay\nwalkthrough\nlet's play\nspeedrun\nmabar\npush rank\nminecraft\nroblox\nmobile legends\nmlbb\nfree fire\nfreefire\npubg\nvalorant\ngenshin\nfortnite\ngta\ncall of duty\nmagic chess\nhonor of kings\nclash of clans\nclash royale\nstumble guys\nefootball\nfc mobile\ndota 2",

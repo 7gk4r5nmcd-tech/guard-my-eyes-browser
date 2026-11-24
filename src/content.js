@@ -352,7 +352,16 @@ function sampleBackgrounds() {
         seen.add(el);
         if (el.__gwComputedBg !== undefined) continue;
         const tag = el.tagName;
-        if (tag === "IMG" || tag === "VIDEO" || tag === "CANVAS" || tag === "IFRAME") continue;
+        if (tag === "IMG" || tag === "VIDEO" || tag === "CANVAS") {
+          // Cadangan bila situs mematikan MutationObserver/IntersectionObserver: periksa langsung.
+          if (!el.__gwSampled) {
+            el.__gwSampled = true;
+            inView.add(el);
+            checkElement(el);
+          }
+          continue;
+        }
+        if (tag === "IFRAME") continue;
         const bg = getComputedStyle(el).backgroundImage;
         el.__gwComputedBg = !!bg && bg.includes("url(") && !(el.getAttribute("style") || "").includes("url(");
         if (el.__gwComputedBg) checkBackground(el);
@@ -504,7 +513,8 @@ async function checkSvgImage(el) {
 
 async function checkCanvas(cv, periodic = false) {
   if (locked) return;
-  if (Math.min(cv.width, cv.height) < settings.minImageSize || cv.__gwTainted) return markOk(cv);
+  if (Math.min(cv.width, cv.height) < settings.minImageSize) return markOk(cv);
+  if (cv.__gwTainted) return settings.blurUnreadableVideos ? undefined : markOk(cv);
   const r = cv.getBoundingClientRect();
   if (Math.min(r.width, r.height) < settings.minImageSize) return markOk(cv);
   if (cv.__gwBusy) return;
@@ -513,7 +523,9 @@ async function checkCanvas(cv, periodic = false) {
     const dataUrl = snapshot(cv, cv.width, cv.height);
     if (!dataUrl) {
       cv.__gwTainted = true; // kanvas berisi gambar lintas domain, tidak bisa dibaca
-      return markOk(cv);
+      if (!settings.blurUnreadableVideos) markOk(cv);
+      else cv.removeAttribute(OK); // isinya berubah jadi tak terbaca -> blur lagi
+      return;
     }
     if (periodic && dataUrl === cv.__gwLast) return; // isinya tidak berubah
     cv.__gwLast = dataUrl;
@@ -638,6 +650,8 @@ function evaluate({ scores = {}, faces = [] }) {
 function lock(reason) {
   if (locked || !IS_TOP) return;
   locked = true;
+  // Di aplikasi HP, kunci yang sebenarnya adalah layar native milik aplikasi (tidak bisa dihapus situs).
+  if (window.__gwMobile) send({ type: "flag", reason });
   setClass("gw-locked", true);
   releaseHold();
 

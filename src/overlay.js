@@ -63,10 +63,19 @@ h1 { font-size: 28px; font-weight: 600; margin: 16px 0 8px; color: #e2b714; }
 
 export function createLockScreen({ reason, stages, onFinished }) {
   const host = document.createElement("gw-lock");
+  // Gaya inline + !important mengalahkan CSS situs (mis. "gw-lock{display:none!important}").
+  const pin = () => {
+    const st = { display: "block", position: "fixed", inset: "0", "z-index": "2147483647",
+      visibility: "visible", opacity: "1", transform: "none", filter: "none", "clip-path": "none",
+      width: "100vw", height: "100vh", "pointer-events": "auto" };
+    for (const [k, v] of Object.entries(st)) host.style.setProperty(k, v, "important");
+  };
+  pin();
+  new MutationObserver(pin).observe(host, { attributes: true, attributeFilter: ["style", "class", "hidden"] });
   const root = host.attachShadow({ mode: "closed" });
   const MOBILE = !!window.__gwMobile;
   root.innerHTML = `<style>${CSS}</style><div class="wrap" tabindex="-1"></div>` +
-    (MOBILE ? `<textarea class="mob" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"></textarea>` : "");
+    (false ? `<textarea class="mob" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="done"></textarea>` : "");
   const wrap = root.querySelector(".wrap");
   const ta = root.querySelector(".mob");
 
@@ -239,6 +248,12 @@ export function createLockScreen({ reason, stages, onFinished }) {
     setTimeout(focus, 300);
   }
 
+  if (MOBILE) {
+    // Di aplikasi HP, tantangan mengetik ditampilkan oleh layar native aplikasi.
+    wrap.innerHTML = `<div class="top"><span class="badge">Konten diblokir</span><h1>Halaman dikunci.</h1>
+      <div class="reason">Terdeteksi: ${escapeHtml(reason)}</div></div>`;
+    return { host, onKey };
+  }
   renderStage();
   return { host, onKey };
 }
