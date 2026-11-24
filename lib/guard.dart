@@ -28,8 +28,11 @@ class Guard {
 
   static const _flaggedKey = 'gw_flagged';
 
+  SharedPreferences? prefs;
+
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
+    this.prefs = prefs;
     _flagged.addAll(prefs.getStringList(_flaggedKey) ?? const []);
     _shadowHook = await rootBundle.loadString('assets/gw/shadow-hook.js');
     _content = await rootBundle.loadString('assets/gw/content.js');

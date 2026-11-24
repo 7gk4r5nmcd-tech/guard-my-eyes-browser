@@ -59,6 +59,16 @@ class BrowserTab {
   double progress = 0;
   bool canBack = false;
   String? lockReason;
+
+  /// Riwayat halaman yang aman (untuk tombol "Kembali" dari layar kunci).
+  final safeHistory = <String>[];
+
+  void rememberSafe(String u) {
+    if (!u.startsWith('http')) return;
+    safeHistory.remove(u);
+    safeHistory.add(u);
+    if (safeHistory.length > 30) safeHistory.removeAt(0);
+  }
 }
 
 class BrowserPage extends StatefulWidget {
@@ -86,8 +96,61 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _newTab(homeUrl);
+    _restoreSession();
     _restartScan();
+  }
+
+  // ---------- Simpan & pulihkan tab ----------
+  // Tab yang terbuka disimpan, jadi setelah aplikasi ditutup/dihentikan dari latar belakang,
+  // halaman terakhir dibuka lagi. Halaman yang terkunci tidak pernah disimpan.
+
+  static const _sessionKey = 'session_tabs_v1';
+  Timer? _saveTimer;
+
+  void _restoreSession() {
+    final urls = <String>[];
+    var current = 0;
+    try {
+      final raw = guard.prefs?.getString(_sessionKey);
+      if (raw != null) {
+        final m = jsonDecode(raw) as Map<String, dynamic>;
+        for (final u in (m['tabs'] as List? ?? const [])) {
+          final s = '$u';
+          if (s.startsWith('http') && !guard.isFlagged(s) && urls.length < maxTabs) urls.add(s);
+        }
+        current = (m['current'] as num?)?.toInt() ?? 0;
+      }
+    } catch (_) {}
+    if (urls.isEmpty) urls.add(homeUrl);
+    for (final u in urls) {
+      final t = BrowserTab(_nextId++, u);
+      t.url = u;
+      _tabs.add(t);
+    }
+    _current = current.clamp(0, _tabs.length - 1);
+    _address.text = tab.url;
+  }
+
+  String _savableUrl(BrowserTab t) {
+    if (t.lockReason == null && t.url.startsWith('http') && !guard.isFlagged(t.url)) return t.url;
+    for (final u in t.safeHistory.reversed) {
+      if (!guard.isFlagged(u)) return u;
+    }
+    return homeUrl;
+  }
+
+  void _saveSession({bool now = false}) {
+    _saveTimer?.cancel();
+    void write() {
+      final data = jsonEncode({'tabs': [for (final t in _tabs) _savableUrl(t)], 'current': _current});
+      guard.prefs?.setString(_sessionKey, data);
+    }
+
+    if (now) {
+      write();
+    } else {
+      _saveTimer = Timer(const Duration(milliseconds: 600), write);
+    }
   }
 
   @override
@@ -100,6 +163,7 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     _foreground = state == AppLifecycleState.resumed;
+    if (!_foreground) _saveSession(now: true);
   }
 
   // ---------- Tab ----------
@@ -114,6 +178,7 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
       _current = _tabs.length - 1;
       _address.text = url;
     });
+    _saveSession();
   }
 
   void _closeTab(int index) {
@@ -129,6 +194,7 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
       }
       _address.text = tab.url;
     });
+    _saveSession();
   }
 
   void _switchTo(int index) {
@@ -136,6 +202,7 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
       _current = index;
       _address.text = tab.url;
     });
+    _saveSession();
   }
 
   // ---------- Navigasi ----------
@@ -159,6 +226,8 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
     final url = t.url;
     setState(() => t.lockReason = reason);
     guard.addFlag(url);
+    t.safeHistory.remove(url);
+    _saveSession(now: true);
     // Tampilkan sampul di halaman dulu (seketika), lalu hentikan halaman sepenuhnya.
     t.c?.evaluateJavascript(
         source: 'window.__gwDispatch && window.__gwDispatch({type:"lock", reason:${jsonEncode(reason)}});');
@@ -168,6 +237,23 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
   void _unlock(BrowserTab t) {
     setState(() => t.lockReason = null);
     t.c?.loadUrl(urlRequest: URLRequest(url: WebUri(homeUrl)));
+  }
+
+  /// "Kembali" dari layar kunci tanpa mengetik: buka halaman aman terakhir (bukan halaman yang diblokir).
+  void _backFromLock(BrowserTab t) {
+    String target = homeUrl;
+    while (t.safeHistory.isNotEmpty) {
+      final u = t.safeHistory.removeLast();
+      if (!guard.isFlagged(u) && guard.rules.checkPage(Uri.tryParse(u), null) == null) {
+        target = u;
+        break;
+      }
+    }
+    setState(() => t.lockReason = null);
+    t.url = target;
+    _address.text = target;
+    t.c?.loadUrl(urlRequest: URLRequest(url: WebUri(target)));
+    _saveSession();
   }
 
   /// Pemeriksaan alamat/judul di sisi aplikasi (tidak bisa diakali skrip situs).
@@ -275,6 +361,7 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
                       ('Doa Salam Maria', '${guard.settings['prayerText'] ?? ''}'.trim()),
                     ].where((s) => s.$2.isNotEmpty).toList(),
                     onFinished: () => _unlock(tab),
+                    onBack: () => _backFromLock(tab),
                   ),
                 ),
             ],
@@ -459,6 +546,8 @@ class _BrowserPageState extends State<BrowserPage> with WidgetsBindingObserver {
       onLoadStop: (c, url) async {
         t.url = url?.toString() ?? t.url;
         if (t == tab && !_addressFocus.hasFocus) _address.text = t.url;
+        if (t.lockReason == null && !guard.isFlagged(t.url)) t.rememberSafe(t.url);
+        _saveSession();
         t.canBack = await c.canGoBack();
         if (mounted) setState(() {});
       },

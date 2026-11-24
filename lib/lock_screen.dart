@@ -4,11 +4,14 @@ import 'package:flutter/services.dart';
 /// Layar kunci native (Flutter). Berada di atas WebView, sehingga tidak bisa
 /// disembunyikan atau dihapus oleh skrip situs mana pun.
 class LockScreen extends StatefulWidget {
-  const LockScreen({super.key, required this.reason, required this.stages, required this.onFinished});
+  const LockScreen({super.key, required this.reason, required this.stages, required this.onFinished, this.onBack});
 
   final String reason;
   final List<(String title, String text)> stages;
   final VoidCallback onFinished;
+
+  /// Kembali ke halaman aman tanpa mengetik.
+  final VoidCallback? onBack;
 
   @override
   State<LockScreen> createState() => _LockScreenState();
@@ -34,6 +37,16 @@ class _LockScreenState extends State<LockScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+  }
+
+  /// Munculkan keyboard lagi. Jika kolom sudah fokus tapi keyboard ditutup (tombol back HP / ketuk
+  /// di luar), requestFocus() saja tidak cukup: keyboard harus diminta tampil secara eksplisit.
+  void _showKeyboard() {
+    if (_focus.hasFocus) {
+      SystemChannels.textInput.invokeMethod<void>('TextInput.show');
+    } else {
+      _focus.requestFocus();
+    }
   }
 
   @override
@@ -90,12 +103,15 @@ class _LockScreenState extends State<LockScreen> {
     final finished = _done && _stage == widget.stages.length - 1;
     return PopScope(
       canPop: false,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && !finished) widget.onBack?.call();
+      },
       child: Material(
         color: bg,
         child: SafeArea(
           child: GestureDetector(
             behavior: HitTestBehavior.opaque,
-            onTap: () => _focus.requestFocus(),
+            onTap: _showKeyboard,
             child: Stack(
               children: [
                 // Kolom teks tak terlihat yang menerima ketikan keyboard.
@@ -207,6 +223,22 @@ class _LockScreenState extends State<LockScreen> {
           _stat('${(correct * 100 / target.length).floor()}%', 'selesai'),
         ]),
         const SizedBox(height: 24),
+        Wrap(spacing: 10, runSpacing: 10, children: [
+          OutlinedButton.icon(
+            onPressed: _showKeyboard,
+            icon: const Icon(Icons.keyboard, color: accent),
+            label: const Text('Tampilkan keyboard', style: TextStyle(color: ok)),
+            style: OutlinedButton.styleFrom(side: const BorderSide(color: sub)),
+          ),
+          if (widget.onBack != null)
+            OutlinedButton.icon(
+              onPressed: widget.onBack,
+              icon: const Icon(Icons.arrow_back, color: ok),
+              label: const Text('Kembali ke halaman aman', style: TextStyle(color: ok)),
+              style: OutlinedButton.styleFrom(side: const BorderSide(color: sub)),
+            ),
+        ]),
+        const SizedBox(height: 16),
         const Text('Ketuk layar bila keyboard tidak muncul • hapus untuk memperbaiki • tempel (paste) tidak bisa',
             style: TextStyle(color: sub, fontSize: 12)),
       ],
