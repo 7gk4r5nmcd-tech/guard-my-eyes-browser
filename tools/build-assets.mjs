@@ -9,7 +9,7 @@ fs.mkdirSync("assets/gw", { recursive: true });
 fs.mkdirSync("assets/classifier/models", { recursive: true });
 
 // Skrip yang disuntikkan ke setiap halaman.
-await esbuild.build({ ...common, entryPoints: ["src/mobile-entry.js"], outfile: "assets/gw/content.js", format: "iife", define: { chrome: "window.__gwChrome" } });
+await esbuild.build({ ...common, entryPoints: ["src/mobile-entry.js"], outfile: "assets/gw/content.js", format: "iife", define: { chrome: "window.__gwChrome" }, loader: { ".css": "text" } });
 await esbuild.build({ ...common, entryPoints: ["src/shadow-hook.js"], outfile: "assets/gw/shadow-hook.js", format: "iife" });
 fs.writeFileSync("assets/gw/defaults.json", JSON.stringify(DEFAULT_SETTINGS, null, 1));
 
