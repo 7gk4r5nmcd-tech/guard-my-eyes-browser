@@ -3,7 +3,7 @@ import 'dart:collection';
 import 'dart:convert';
 
 import 'package:flutter_inappwebview/flutter_inappwebview.dart';
-import 'package:http/http.dart' as http;
+import 'net_guard.dart';
 
 /// AI pemeriksa gambar. Model TensorFlow.js (sama dengan ekstensi laptop) dijalankan di WebView
 /// tersembunyi yang memuat assets/classifier lewat server lokal di dalam aplikasi.
@@ -47,25 +47,25 @@ class Classifier {
   }
 
   /// Unduh gambar (dengan Referer halaman, supaya server tidak menolak), lalu periksa.
+  /// Hanya alamat internet publik yang diizinkan (lihat NetGuard).
   Future<Map<String, dynamic>> classifyUrl(String url, String? referer) async {
     final cached = _cache[url];
     if (cached != null) return cached;
-    try {
-      final resp = await http
-          .get(Uri.parse(url), headers: {'User-Agent': userAgent, if (referer != null) 'Referer': referer})
-          .timeout(const Duration(seconds: 15));
-      if (resp.statusCode != 200) return {'error': 'HTTP ${resp.statusCode}'};
-      var type = (resp.headers['content-type'] ?? '').split(';').first.trim();
-      if (!type.startsWith('image/')) type = 'image/jpeg';
-      if (resp.bodyBytes.length > 12 * 1024 * 1024) return {'skip': true};
-      final result = await classifyDataUrl('data:$type;base64,${base64Encode(resp.bodyBytes)}');
-      if (result['error'] == null) {
-        _cache[url] = result;
-        if (_cache.length > 600) _cache.remove(_cache.keys.first);
-      }
-      return result;
-    } catch (e) {
-      return {'error': e.toString()};
+    final uri = Uri.tryParse(url);
+    if (uri == null) return {'error': 'bad url'};
+    final resp = await NetGuard.get(uri, headers: {
+      'User-Agent': userAgent,
+      if (referer != null && referer.startsWith('http')) 'Referer': referer,
+    });
+    if (resp == null) return {'error': 'blocked or failed'};
+    if (resp.status != 200) return {'error': 'HTTP ${resp.status}'};
+    var type = resp.contentType;
+    if (!type.startsWith('image/')) type = 'image/jpeg';
+    final result = await classifyDataUrl('data:$type;base64,${base64Encode(resp.bytes)}');
+    if (result['error'] == null) {
+      _cache[url] = result;
+      if (_cache.length > 600) _cache.remove(_cache.keys.first);
     }
+    return result;
   }
 }

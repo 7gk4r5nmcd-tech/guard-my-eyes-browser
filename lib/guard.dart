@@ -6,84 +6,97 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'classifier.dart';
+import 'rules.dart';
 import 'settings.dart';
 
 /// Jembatan antara skrip Guard My Eyes di halaman (assets/gw/content.js) dan aplikasi.
-/// Menjawab pesan yang di ekstensi laptop dijawab oleh background.js.
+///
+/// Catatan keamanan: pesan dari halaman TIDAK dipercaya. Situs bisa memanggil
+/// callHandler('gw', ...) sendiri, jadi:
+///  - unduhan gambar hanya ke internet publik (NetGuard),
+///  - pesan dari halaman hanya bisa MENGUNCI, tidak pernah membuka kunci,
+///  - kunci yang sebenarnya adalah layar native aplikasi.
 class Guard {
-  Guard(this.classifier, this.settings);
+  Guard(this.classifier, this.settings) : rules = Rules(settings);
 
   final Classifier classifier;
-  Settings settings;
-  final Set<String> _flagged = {};
+  final Settings settings;
+  final Rules rules;
+  final List<String> _flagged = [];
   final Map<String, Map<String, dynamic>> _yt = {};
-  String? _script;
+  String? _shadowHook, _content;
 
   static const _flaggedKey = 'gw_flagged';
 
   Future<void> init() async {
     final prefs = await SharedPreferences.getInstance();
     _flagged.addAll(prefs.getStringList(_flaggedKey) ?? const []);
+    _shadowHook = await rootBundle.loadString('assets/gw/shadow-hook.js');
+    _content = await rootBundle.loadString('assets/gw/content.js');
+  }
+
+  bool isFlagged(String? url) => url != null && _flagged.contains(url);
+
+  Future<void> addFlag(String? url) async {
+    if (url == null || !url.startsWith('http') || _flagged.contains(url)) return;
+    _flagged.add(url);
+    if (_flagged.length > 300) _flagged.removeAt(0);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_flaggedKey, _flagged);
   }
 
   /// Skrip yang disuntikkan ke setiap halaman & iframe sejak awal dimuat.
-  Future<UserScript> userScript() async {
-    _script ??= '${await rootBundle.loadString('assets/gw/shadow-hook.js')}\n'
-        '${await rootBundle.loadString('assets/gw/content.js')}';
+  UserScript userScript() {
     final settingsJs = 'window.__gwSettings = ${jsonEncode(settings.merged)};';
     return UserScript(
-      source: '$settingsJs\n$_script',
+      source: '$settingsJs\n$_shadowHook\n$_content',
       injectionTime: UserScriptInjectionTime.AT_DOCUMENT_START,
       forMainFrameOnly: false,
     );
   }
 
-  void attach(InAppWebViewController c, {required void Function() onFinished}) {
+  /// [onLock] dipanggil saat skrip halaman menemukan konten terlarang.
+  void attach(InAppWebViewController c, {required void Function(String reason) onLock}) {
     c.addJavaScriptHandler(
       handlerName: 'gw',
       callback: (args) async {
         if (args.isEmpty || args.first is! Map) return {'error': 'bad message'};
         final msg = Map<String, dynamic>.from(args.first as Map);
-        return _handle(c, msg, onFinished);
+        return _handle(c, msg, onLock);
       },
     );
   }
 
-  Future<dynamic> _handle(InAppWebViewController c, Map<String, dynamic> msg, void Function() onFinished) async {
+  Future<dynamic> _handle(InAppWebViewController c, Map<String, dynamic> msg, void Function(String) onLock) async {
     switch (msg['type']) {
       case 'classify':
-        final dataUrl = msg['dataUrl'] as String?;
-        if (dataUrl != null) return classifier.classifyDataUrl(dataUrl);
-        final url = msg['url'] as String?;
-        if (url == null) return {'error': 'no url'};
+        final dataUrl = msg['dataUrl'];
+        if (dataUrl is String) {
+          if (!dataUrl.startsWith('data:image/') || dataUrl.length > 16 * 1024 * 1024) return {'skip': true};
+          return classifier.classifyDataUrl(dataUrl);
+        }
+        final url = msg['url'];
+        if (url is! String) return {'error': 'no url'};
         final page = (await c.getUrl())?.toString();
         return classifier.classifyUrl(url, page);
 
       case 'classifyVideo':
-        // Video dari server lain belum bisa diperiksa di HP -> skrip akan membiarkannya ter-blur.
+        // Video dari server lain belum bisa diperiksa di HP -> tetap ter-blur.
+        // (Pemindaian layar native tetap memeriksa apa pun yang tampil.)
         return {'error': 'unsupported'};
 
       case 'flag':
-        final page = (await c.getUrl())?.toString();
-        if (page != null && _flagged.add(page)) {
-          final prefs = await SharedPreferences.getInstance();
-          await prefs.setStringList(_flaggedKey, _flagged.toList().reversed.take(300).toList());
-        }
-        await c.evaluateJavascript(
-          source: 'window.__gwDispatch && window.__gwDispatch({type:"lock", reason:${jsonEncode(msg['reason'] ?? 'konten terlarang')}});',
-        );
+        final reason = '${msg['reason'] ?? 'konten terlarang'}';
+        onLock(reason.length > 120 ? reason.substring(0, 120) : reason);
         return {'ok': true};
 
       case 'isFlagged':
-        return {'flagged': _flagged.contains(msg['url'])};
+        return {'flagged': isFlagged(msg['url'] as String?)};
 
       case 'ytInfo':
-        return _ytInfo(msg['id'] as String? ?? '');
-
-      case 'finished':
-        onFinished();
-        return {'ok': true};
+        return _ytInfo('${msg['id'] ?? ''}');
     }
+    // 'finished' dan pesan lain dari halaman diabaikan: hanya layar native yang bisa membuka kunci.
     return {'error': 'unknown message'};
   }
 

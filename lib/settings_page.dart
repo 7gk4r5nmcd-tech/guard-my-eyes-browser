@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'pin.dart';
 import 'settings.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -23,6 +24,7 @@ class _SettingsPageState extends State<SettingsPage> {
     'blurUntilChecked': 'Blur gambar sampai lolos pemeriksaan',
     'holdPage': 'Tunda halaman sampai gambar pertama diperiksa',
     'blurUnreadableVideos': 'Gambar/video yang tidak bisa diperiksa tetap di-blur',
+    'screenScan': 'Pemindaian layar (AI memeriksa tampilan layar setiap beberapa detik)',
   };
 
   static const texts = <String, String>{
@@ -73,6 +75,37 @@ class _SettingsPageState extends State<SettingsPage> {
                   _changed = true;
                 }),
               ),
+            const Divider(),
+            ListTile(
+              leading: const Icon(Icons.lock_outline),
+              title: const Text('PIN Pengaturan'),
+              subtitle: const Text('Supaya filter tidak bisa dimatikan sendiri. Sebaiknya dibuat oleh orang yang dipercaya.'),
+              onTap: () async {
+                final pin = await Pin.ask(context, 'PIN baru (kosongkan untuk menghapus)');
+                if (pin == null) return;
+                if (pin.isNotEmpty && pin.length < 4) {
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN minimal 4 angka.')));
+                  }
+                  return;
+                }
+                if (pin.isNotEmpty) {
+                  if (!context.mounted) return;
+                  final again = await Pin.ask(context, 'Ulangi PIN');
+                  if (again != pin) {
+                    if (context.mounted) {
+                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('PIN tidak sama.')));
+                    }
+                    return;
+                  }
+                }
+                await Pin.set(pin);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text(pin.isEmpty ? 'PIN dihapus.' : 'PIN disimpan.')));
+                }
+              },
+            ),
             const Divider(),
             for (final e in texts.entries)
               Padding(
